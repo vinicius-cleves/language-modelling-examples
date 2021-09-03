@@ -12,7 +12,27 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Create masked LM/next sentence masked_lm TF examples for BERT."""
+"""Create masked LM/next sentence masked_lm TF examples for BERT.
+
+Usage Example:
+
+python preprocessing/src/create_pretraining_data.py \
+  --input_file=preprocessing/data/valor_economico_0.txt \
+  --output_file=preprocessing/data/valor_economico_0_examples.jsonl \
+  --vocab_file=preprocessing/data/vocab.txt \
+  --do_lower_case=True \
+  --max_seq_length=128 \
+  --max_predictions_per_seq=20 \
+  --masked_lm_prob=0.15 \
+  --random_seed=12345 \
+  --dupe_factor=5
+
+For extra details, consult: https://github.com/google-research/bert#pre-training-with-bert
+
+INTERFACE CHANGES:
+- Changed output from .tfrecord to .jsonl
+
+"""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -20,8 +40,10 @@ from __future__ import print_function
 
 import collections
 import random
+import json
 import tokenization
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+from tqdm import tqdm
 
 flags = tf.flags
 
@@ -98,7 +120,7 @@ def write_instance_to_example_files(instances, tokenizer, max_seq_length,
   """Create TF example files from `TrainingInstance`s."""
   writers = []
   for output_file in output_files:
-    writers.append(tf.python_io.TFRecordWriter(output_file))
+    writers.append(open(output_file, 'wt'))
 
   writer_index = 0
 
@@ -107,40 +129,29 @@ def write_instance_to_example_files(instances, tokenizer, max_seq_length,
     input_ids = tokenizer.convert_tokens_to_ids(instance.tokens)
     input_mask = [1] * len(input_ids)
     segment_ids = list(instance.segment_ids)
+    
     assert len(input_ids) <= max_seq_length
-
-    while len(input_ids) < max_seq_length:
-      input_ids.append(0)
-      input_mask.append(0)
-      segment_ids.append(0)
-
-    assert len(input_ids) == max_seq_length
-    assert len(input_mask) == max_seq_length
-    assert len(segment_ids) == max_seq_length
+    assert len(input_mask) <= max_seq_length
+    assert len(segment_ids) <= max_seq_length
 
     masked_lm_positions = list(instance.masked_lm_positions)
     masked_lm_ids = tokenizer.convert_tokens_to_ids(instance.masked_lm_labels)
-    masked_lm_weights = [1.0] * len(masked_lm_ids)
 
-    while len(masked_lm_positions) < max_predictions_per_seq:
-      masked_lm_positions.append(0)
-      masked_lm_ids.append(0)
-      masked_lm_weights.append(0.0)
+    labels = [-100] * len(input_ids)
+    
+    for idx, token_id in zip(masked_lm_positions, masked_lm_ids):
+      labels[idx] = token_id
 
     next_sentence_label = 1 if instance.is_random_next else 0
 
-    features = collections.OrderedDict()
-    features["input_ids"] = create_int_feature(input_ids)
-    features["input_mask"] = create_int_feature(input_mask)
-    features["segment_ids"] = create_int_feature(segment_ids)
-    features["masked_lm_positions"] = create_int_feature(masked_lm_positions)
-    features["masked_lm_ids"] = create_int_feature(masked_lm_ids)
-    features["masked_lm_weights"] = create_float_feature(masked_lm_weights)
-    features["next_sentence_labels"] = create_int_feature([next_sentence_label])
+    features = dict()
+    features["input_ids"] = input_ids
+    features["attention_mask"] = input_mask
+    features["token_type_ids"] = segment_ids
+    features['labels'] = labels
+    features["next_sentence_label"] = next_sentence_label
 
-    tf_example = tf.train.Example(features=tf.train.Features(feature=features))
-
-    writers[writer_index].write(tf_example.SerializeToString())
+    writers[writer_index].write(json.dumps(features) + '\n')
     writer_index = (writer_index + 1) % len(writers)
 
     total_written += 1
@@ -151,29 +162,12 @@ def write_instance_to_example_files(instances, tokenizer, max_seq_length,
           [tokenization.printable_text(x) for x in instance.tokens]))
 
       for feature_name in features.keys():
-        feature = features[feature_name]
-        values = []
-        if feature.int64_list.value:
-          values = feature.int64_list.value
-        elif feature.float_list.value:
-          values = feature.float_list.value
-        tf.logging.info(
-            "%s: %s" % (feature_name, " ".join([str(x) for x in values])))
+        values = features[feature_name]
 
   for writer in writers:
     writer.close()
 
   tf.logging.info("Wrote %d total instances", total_written)
-
-
-def create_int_feature(values):
-  feature = tf.train.Feature(int64_list=tf.train.Int64List(value=list(values)))
-  return feature
-
-
-def create_float_feature(values):
-  feature = tf.train.Feature(float_list=tf.train.FloatList(value=list(values)))
-  return feature
 
 
 def create_training_instances(input_files, tokenizer, max_seq_length,
@@ -188,8 +182,9 @@ def create_training_instances(input_files, tokenizer, max_seq_length,
   # sentence boundaries for the "next sentence prediction" task).
   # (2) Blank lines between documents. Document boundaries are needed so
   # that the "next sentence prediction" task doesn't span between documents.
-  for input_file in input_files:
-    with tf.gfile.GFile(input_file, "r") as reader:
+  for idx, input_file in enumerate(input_files):
+    with tf.gfile.GFile(input_file, "r") as reader, \
+      tqdm(desc=f'Reading input files ({idx+1}/{len(input_files)})') as pbar:
       while True:
         line = tokenization.convert_to_unicode(reader.readline())
         if not line:
@@ -202,6 +197,8 @@ def create_training_instances(input_files, tokenizer, max_seq_length,
         tokens = tokenizer.tokenize(line)
         if tokens:
           all_documents[-1].append(tokens)
+        
+        pbar.update()
 
   # Remove empty documents
   all_documents = [x for x in all_documents if x]
@@ -209,8 +206,8 @@ def create_training_instances(input_files, tokenizer, max_seq_length,
 
   vocab_words = list(tokenizer.vocab.keys())
   instances = []
-  for _ in range(dupe_factor):
-    for document_index in range(len(all_documents)):
+  for dupe_iter in range(dupe_factor):
+    for document_index in tqdm(range(len(all_documents)), desc=f'Creating training instances ({dupe_iter+1}/{dupe_factor})'):
       instances.extend(
           create_instances_from_document(
               all_documents, document_index, max_seq_length, short_seq_prob,
