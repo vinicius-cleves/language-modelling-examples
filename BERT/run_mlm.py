@@ -418,8 +418,9 @@ def main():
         print('metrics', metrics)
         max_val_samples = data_args.max_val_samples if data_args.max_val_samples is not None else len(eval_dataset)
         metrics["eval_samples"] = min(max_val_samples, len(eval_dataset))
-        perplexity = math.exp(metrics["eval_loss"])
-        metrics["perplexity"] = perplexity
+        if extra_training_args.eval_only_mlm is True:
+            perplexity = math.exp(metrics["eval_loss"])
+            metrics["perplexity"] = perplexity
 
         trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics)
