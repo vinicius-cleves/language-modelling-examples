@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # coding=utf-8
 # Copyright 2020 The HuggingFace Team All rights reserved.
+# Copyright 2021 Vinicius Carmo All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,12 +17,13 @@
 """
 Fine-tuning the library models for masked language modeling (BERT, ALBERT, RoBERTa...) on a text file or a dataset.
 
-Here is the full list of checkpoints on the hub that can be fine-tuned by this script:
-https://huggingface.co/models?filter=masked-lm
-python run_mlm.py \
+This script is based on Hugginface's Transformers MLM example in pytorch.
+
+Usage example:
+python run_bert.py \
     --model_name_or_path=bert-base-uncased \
 	--train_file train_file1.json train_file2.json \
-	--validation_file=val_file.json \
+	--validation_file val_file1.json val_file2.json \
     --datasets_cache_dir=cache_dir \
 	--do_train=True \
 	--do_eval=True \
@@ -149,9 +151,9 @@ class DataTrainingArguments:
     train_file: Optional[List[str]] = field(
         default=None, 
         metadata={"help": "The input training data files (jsonlines as .json files)."})
-    validation_file: Optional[str] = field(
+    validation_file: Optional[List[str]] = field(
         default=None,
-        metadata={"help": "An optional input evaluation data file to evaluate the perplexity on (a jsonlines as .json file)."},
+        metadata={"help": "Optional input evaluation data files to evaluate the perplexity on (jsonlines as .json files)."},
     )
     overwrite_cache: bool = field(
         default=False, metadata={"help": "Overwrite the cached training and evaluation sets"}
@@ -191,8 +193,9 @@ class DataTrainingArguments:
                     extension = _train_file.split(".")[-1]
                     assert extension == 'json', "`train_file` should be a jsonlines file with .json extension."
             if self.validation_file is not None:
-                extension = self.validation_file.split(".")[-1]
-                assert extension == 'json', "`validation_file` should be a jsonlines file with .json extension."
+                for _validation_file in self.validation_file:
+                    extension = _validation_file.split(".")[-1]
+                    assert extension == 'json', "`validation_file` should be jsonlines files with .json extension."
 
 
 

@@ -54,7 +54,7 @@ To train with 128 tokens, on 4 GPUs, use:
 python -m torch.distributed.run --nproc_per_node=4 run_bert.py \
 	--model_name_or_path=bert-base-uncased \
 	--train_file data/train_128.json \
-	--validation_file=data/dev_128.json \
+	--validation_file data/dev_128.json \
   --datasets_cache_dir=data/cache \
 	--do_train=True \
 	--do_eval=True \
@@ -88,7 +88,7 @@ Evaluate for MLM objective only to obtain perplexity metrics:
 ```bash
 python -m torch.distributed.run --nproc_per_node=4 run_bert.py \
 	--model_name_or_path=data/models/checkpoints_512/checkpoint-10000 \
-	--validation_file=data/test_512.json \
+	--validation_file data/test_512.json \
   --datasets_cache_dir=data/cache \
 	--do_train=False \
 	--do_eval=True \
@@ -110,7 +110,7 @@ or to obtain NSP + MLM loss metrics:
 ```bash
 python -m torch.distributed.run --nproc_per_node=4 run_bert.py \
   --model_name_or_path=data/models/checkpoints_512/checkpoint-10000 \
-  --validation_file=data/test_512.json \
+  --validation_file data/test_512.json \
   --datasets_cache_dir=data/cache \
 	--do_train=False \
 	--do_eval=True \
